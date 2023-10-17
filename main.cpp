@@ -53,8 +53,13 @@ int test(std::string file) {
         // loop through the packet and print it as hexidecimal representations of octets
         // We also have a function that does this similarly below: PrintData()
 
+		// Ethernet header is 14 bytes
+		// IP header length is at data[14] in words
+		// UDP header is 8 bytes
+		// 16 is yiaddr offset
+		std::cout << "offset: " << 14+(data[14] & 15)*4+8+16 << std::endl;
 		uint32_t a;
-	    memcpy(&a, data+30, sizeof(a)); // destination IP
+	    memcpy(&a, data+14+(data[14] & 15)*4+8+16, sizeof(a)); // destination IP
 		in_addr addr = {a};
 
 
