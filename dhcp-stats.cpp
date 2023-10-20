@@ -1,5 +1,6 @@
 #include "dhcp-stats.h"
 #include <pcap/pcap.h>
+#include <bits/stdc++.h>
 
 int DHCPStats::calculate_subnet_capacity(const std::string& subnet) {
 	int capacity = 0;
@@ -35,6 +36,51 @@ void DHCPStats::print_stats() {
 	for (auto const &ip : ips) {
 		std::cout << ip.begin()->first << "  " << "used" << ": " << ip.find("used")->second << "/" << ip.find("capacity")->second << std::endl;
 	}
+}
+
+std::string DHCPStats::parse_packet(const u_char *packet) {
+//	struct UDPHeader *udp_header = (struct UDPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet));
+	UDPHeader udp_header = UDPHeader(packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet));
+	struct DHCPHeader *dhcp_header = (struct DHCPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet)+UDP_HEADER_LEN);
+//	if (dhcp_header->magic_cookie != DHCP_MAGIC_COOKIE) {
+//		return 3;
+//	}
+
+	uint32_t mask = 0;
+	if (dhcp_header->op != 2) {
+		return "";
+	}
+	auto *payload = DHCP_OPTION_OFFSET(packet);
+
+	if(parse_options(payload, udp_header.length - 8, &mask) == 5) {
+		int c = 0;
+		for (int i = 0; i < sizeof(mask) * CHAR_BIT; i++) {
+			c += (mask >> i) & 1; // count bits
+		}
+		in_addr addr = {dhcp_header->yiaddr};
+		return std::string(inet_ntoa(addr)) + "/" + std::to_string(c);
+	}
+}
+
+int DHCPStats::parse_options(const u_char *packet, uint16_t length, uint32_t *mask) {
+	int return_code = 0;
+	for (int i = 0; i < length; i++) {
+		if (packet[i] == 1) {
+			*mask = (0xffffffff & *((uint32_t*) (packet + i + 2)));
+			i += (int)packet[++i];
+		}
+		if ((packet[i] & 0xff) == 0xff) {
+			return return_code;
+		} else if (packet[i] == 0) {
+			continue;
+		} else if (((packet[i] & 0x35) == 0x35)) {
+			return_code = (int)packet[i + 2];
+			i += (int)packet[++i];
+		} else {
+			i += (int)packet[++i];
+		}
+	}
+	return return_code;
 }
 
 int DHCPStats::sniffer() {

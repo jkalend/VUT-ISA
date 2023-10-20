@@ -3,7 +3,6 @@
 
 #include <string>
 #include <vector>
-#include <getopt.h>
 #include <regex>
 #include <iostream>
 #include <syslog.h>
