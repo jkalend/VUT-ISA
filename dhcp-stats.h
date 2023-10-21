@@ -2,7 +2,6 @@
 #define VUT_ISA_DHCP_STATS_H
 
 #include "argparse.h"
-#include "UDPheader.h"
 #include <ncurses.h>
 #include <pcap/pcap.h>
 #include <map>
@@ -37,25 +36,16 @@ struct DHCPHeader {
 //	u_char *options;
 };
 
-#define REV_INT16(x) (ntohs(x))
-
-//struct UDPHeader {
-//	uint16_t source_port = REV_INT16(source_port);
-//	uint16_t destination_port = REV_INT16(destination_port);
-//	uint16_t length = REV_INT16(length);
-//	uint16_t checksum = REV_INT16(checksum);
-//};
-
 
 class DHCPStats {
 private:
 	std::vector<std::map<std::string, int>> ips;
-	std::string interface;
 
 
 public:
 	DHCPStats(int argc, char **argv);
 	~DHCPStats() = default;
+	std::string interface;
 
 	std::string filename;
 
@@ -66,11 +56,13 @@ public:
 
 	void print_stats();
 
-	int sniffer();
+	void update_stats(uint32_t ip);
 
-	std::string parse_packet(const u_char *packet);
+	int sniffer(const std::string dev);
 
-	int parse_options(const u_char *packet, uint16_t length, uint32_t *mask);
+	uint32_t parse_packet(const u_char *packet);
+
+	int parse_options(const u_char *packet);
 };
 
 #endif //VUT_ISA_DHCP_STATS_H

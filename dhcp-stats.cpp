@@ -1,6 +1,5 @@
 #include "dhcp-stats.h"
-#include <pcap/pcap.h>
-#include <bits/stdc++.h>
+#include <netinet/ip.h>
 
 int DHCPStats::calculate_subnet_capacity(const std::string& subnet) {
 	int capacity = 0;
@@ -11,7 +10,7 @@ int DHCPStats::calculate_subnet_capacity(const std::string& subnet) {
 	else {
 		capacity = static_cast<int>(pow(2, 32 - mask));
 	}
-	return capacity;
+	return capacity - 2;
 }
 
 DHCPStats::DHCPStats(int argc, char **argv) {
@@ -19,76 +18,88 @@ DHCPStats::DHCPStats(int argc, char **argv) {
 	interface = argparse.get_interface();
 	filename = argparse.get_filename();
 	for (auto const &ip : argparse.get_ips()) {
+		std::string netip = ip.substr(0, ip.find('/'));
+		uint32_t subnet_mask = std::stoi(ip.substr(ip.find('/') + 1));
 		std::map<std::string, int> ip_map;
-		ip_map[ip] = 0;
-		ip_map["used"] = 0;
+		ip_map["ip"] = inet_addr(netip.c_str());
 		ip_map["capacity"] = calculate_subnet_capacity(ip);
+		ip_map["subnet_mask"] = ntohl(~0 << (32 - subnet_mask));
+		ip_map["prefix"] = subnet_mask;
+		ip_map["used"] = 0;
+		ip_map["changed"] = 1;
 		ips.emplace_back(ip_map);
 	}
 }
 
-void DHCPStats::print_stats() {
-	std::cout << "DHCP Stats" << std::endl;
-	std::cout << "===========" << std::endl;
-	std::cout << "Interface: " << interface << std::endl;
-	std::cout << "Filename: " << filename << std::endl;
-	std::cout << "IPs: " << std::endl;
-	for (auto const &ip : ips) {
-		std::cout << ip.begin()->first << "  " << "used" << ": " << ip.find("used")->second << "/" << ip.find("capacity")->second << std::endl;
+void DHCPStats::update_stats(uint32_t ip) {
+	for (auto &subnet : ips) {
+		if ((subnet.find("ip")->second & subnet.find("subnet_mask")->second) == (ip & subnet.find("subnet_mask")->second)) {
+			subnet.find("used")->second++;
+			subnet.find("changed")->second = 1;
+		}
 	}
 }
 
-std::string DHCPStats::parse_packet(const u_char *packet) {
-//	struct UDPHeader *udp_header = (struct UDPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet));
-	UDPHeader udp_header = UDPHeader(packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet));
-	struct DHCPHeader *dhcp_header = (struct DHCPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet)+UDP_HEADER_LEN);
-//	if (dhcp_header->magic_cookie != DHCP_MAGIC_COOKIE) {
-//		return 3;
-//	}
+void DHCPStats::print_stats() {
+	int line = 1;
+	for (auto &ip : ips) {
+		if (ip.find("changed")->second == 0) {
+			line++;
+			continue;
+		}
+		move(line, 0);
+		clrtoeol();
+		char *ipaddr = inet_ntoa(*(in_addr*)&ip.find("ip")->second);
+		printw("%s/%d %d %d %d%%\n", ipaddr, ip.find("prefix")->second, ip.find("capacity")->second, ip.find("used")->second, (ip.find("used")->second * 100) / ip.find("capacity")->second);
+		ip.find("changed")->second = 0;
+		line++;
+	}
+	refresh();
+}
 
-	uint32_t mask = 0;
+uint32_t DHCPStats::parse_packet(const u_char *packet) {
+	struct ip *ip_header = (struct ip *) (packet+ETHERNET_HEADER_LEN);
+	if (ntohs(ip_header->ip_len) < DHCP_HEADER_LEN) {
+		return 0;
+	}
+	struct DHCPHeader *dhcp_header = (struct DHCPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet)+UDP_HEADER_LEN);
+
 	if (dhcp_header->op != 2) {
-		return "";
+		return 0;
 	}
 	auto *payload = DHCP_OPTION_OFFSET(packet);
 
-	if(parse_options(payload, udp_header.length - 8, &mask) == 5) {
-		int c = 0;
-		for (int i = 0; i < sizeof(mask) * CHAR_BIT; i++) {
-			c += (mask >> i) & 1; // count bits
-		}
-		in_addr addr = {dhcp_header->yiaddr};
-		return std::string(inet_ntoa(addr)) + "/" + std::to_string(c);
+	if(parse_options(payload) == 5) {
+//		dhcp_header->yiaddr = inet_addr("192.168.1.12");
+		return dhcp_header->yiaddr;
 	}
+	return 0;
 }
 
-int DHCPStats::parse_options(const u_char *packet, uint16_t length, uint32_t *mask) {
+int DHCPStats::parse_options(const u_char *packet) {
 	int return_code = 0;
-	for (int i = 0; i < length; i++) {
-		if (packet[i] == 1) {
-			*mask = (0xffffffff & *((uint32_t*) (packet + i + 2)));
-			i += (int)packet[++i];
-		}
-		if ((packet[i] & 0xff) == 0xff) {
-			return return_code;
-		} else if (packet[i] == 0) {
-			continue;
-		} else if (((packet[i] & 0x35) == 0x35)) {
+	int i = 0;
+	while ((packet[i] & 0xff) != 0xff) {
+//		if (packet[i] == 1) {
+//			*mask = (0xffffffff & *((uint32_t*) (packet + i + 2)));
+//			i += (int)packet[++i];
+//		}
+		if (((packet[i] & 0x35) == 0x35)) {
 			return_code = (int)packet[i + 2];
 			i += (int)packet[++i];
 		} else {
 			i += (int)packet[++i];
 		}
+		i++;
 	}
 	return return_code;
 }
 
-int DHCPStats::sniffer() {
+int DHCPStats::sniffer(const std::string dev) {
 	pcap_t *handle;			/* Session handle */
-	char *dev;			/* The device to sniff on */
 	char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
 	struct bpf_program fp;		/* The compiled filter */
-	char filter_exp[] = "port 80";	/* The filter expression */
+	char filter_exp[] = "port 80 or port 67";	/* The filter expression */
 	bpf_u_int32 mask;		/* Our netmask */
 	bpf_u_int32 net;		/* Our IP */
 	struct pcap_pkthdr header;	/* The header that pcap gives us */
@@ -97,22 +108,31 @@ int DHCPStats::sniffer() {
 	/* Define the device */
 	pcap_if_t *alldevsp;
 	pcap_findalldevs(&alldevsp, errbuf);
-	dev = alldevsp[0].name;
-	if (dev == NULL) {
+	bool found = false;
+	for (auto *d = alldevsp; d != NULL; d = d->next) {
+		if (strcmp(d->name, dev.c_str()) == 0) {
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		fprintf(stderr, "Couldn't find device %s: %s\n", dev.c_str(), errbuf);
+		return 2;
+	}
+	if (dev == "") {
 		fprintf(stderr, "Couldn't find default device: %s\n", errbuf);
 		return 2;
 	}
-	printf("Device: %s\n", dev);
 	/* Find the properties for the device */
-	if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-		fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf);
+	if (pcap_lookupnet(dev.c_str(), &net, &mask, errbuf) == -1) {
+		fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev.c_str(), errbuf);
 		net = 0;
 		mask = 0;
 	}
 	/* Open the session in promiscuous mode */
-	handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+	handle = pcap_open_live(dev.c_str(), BUFSIZ, 1, 1000, errbuf);
 	if (handle == NULL) {
-		fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
+		fprintf(stderr, "Couldn't open device %s: %s\n", dev.c_str(), errbuf);
 		return 2;
 	}
 	/* Compile and apply the filter */
@@ -124,11 +144,17 @@ int DHCPStats::sniffer() {
 		fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
 		return 2;
 	}
-	/* Grab a packet */
-	packet = pcap_next(handle, &header);
-	/* Print its length */
-	std::cout << "Jacked a packet with length of [" << header.len << "]" << std::endl;
-	/* And close the session */
-	pcap_close(handle);
+	while (true) {
+		/* Grab a packet */
+		packet = pcap_next(handle, &header);
+		/* Print its length */
+		uint32_t result = parse_packet(packet);
+		if (result == 0) {
+			print_stats();
+		} else {
+			update_stats(result);
+			print_stats();
+		}
+	}
 	return 0;
 }

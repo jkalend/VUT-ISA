@@ -15,8 +15,6 @@ add_executable(dhcp-stats
         dhcp-stats.h
         argparse.cpp
         argparse.h
-        main.cpp
-        UDPheader.cpp
-        UDPheader.h)
+        main.cpp)
 
-target_link_libraries(dhcp-stats pcap)
+target_link_libraries(dhcp-stats pcap ncurses)

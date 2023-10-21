@@ -1,7 +1,4 @@
 #include "dhcp-stats.h"
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <string.h>
 
 int test(DHCPStats &dhcp_stats) {
 	char errbuff[PCAP_ERRBUF_SIZE];
@@ -31,74 +28,31 @@ int test(DHCPStats &dhcp_stats) {
     /*
     * Step 6 - Loop through packets and print them to screen
     */
-    u_int packetCount = 0;
-    while (int returnValue = pcap_next_ex(pcap, &header, &data) >= 0)
-    {
-        // Print using printf. See printf reference:
-        // http://www.cplusplus.com/reference/clibrary/cstdio/printf/
-
-        // Show the packet number
-        printf("Packet # %i\n", ++packetCount);
-
-        // Show the size in bytes of the packet
-        printf("Packet size: %d bytes\n", header->len);
-
-        // Show a warning if the length captured is different
-        if (header->len != header->caplen)
-            printf("Warning! Capture size different than packet size: %ld bytes\n", header->len);
-
-        // Show Epoch Time
-        printf("Epoch Time: %d:%d seconds\n", header->ts.tv_sec, header->ts.tv_usec);
-
-        // loop through the packet and print it as hexidecimal representations of octets
-        // We also have a function that does this similarly below: PrintData()
-
-		// Ethernet header is 14 bytes
-		// IP header length is at data[14] in words
-		// UDP header is 8 bytes
-		// 16 is yiaddr offset
-		// 236 options offset
-		// 4 is magic cookie offset
-//		std::cout << "offset: " << DHCP_OPTION_OFFSET(data)<< std::endl;
-//		struct DHCPHeader *dhcp_header = (struct DHCPHeader *) (data+ETHERNET_HEADER_LEN+IP_HEADER_LEN(data)+UDP_HEADER_LEN);
-//		u_char *payload = (u_char *) (DHCP_OPTION_OFFSET(data));
-//		char a[2] = {0x1, 0x34};
-//		uint16_t b = *(uint16_t *)a;
-//		b = ntohs(b);
-//		std::cout << "option: " << b << std::endl;
-
-//		std::cout << dhcp_stats.parse_packet(data) << std::endl;
-
-
-//	    memcpy(&a, data+14+(data[14] & 15)*4+8+236, sizeof(a)); // destination IP
-//		std::cout << a << std::endl;
-
-
-		std::cout << "IP: " << dhcp_stats.parse_packet(data) << std::endl;
-
-//        for (u_int i=0; (i < header->caplen ) ; i++)
-//        {
-//            // Start printing on the next after every 16 octets
-//            if ( (i % 16) == 0) printf("\n");
-//
-//            // Print each octet as hex (x), make sure there is always two characters (.2).
-//            printf("%.2x ", data[i]);
-//        }
-//
-        // Add two lines between packets
-        printf("\n\n");
+    while (int returnValue = pcap_next_ex(pcap, &header, &data) >= 0) {
+		if (dhcp_stats.parse_packet(data) == 0) {
+			dhcp_stats.print_stats();
+			continue;
+		}
+		dhcp_stats.update_stats(dhcp_stats.parse_packet(data));
+		dhcp_stats.print_stats();
     }
 	return 0;
 }
 
 int main(int argc , char **argv) {
-//	initscr();
+	initscr();
 	openlog("dhcp-stats", LOG_PID | LOG_NDELAY, LOG_DAEMON);
 
 	DHCPStats dhcp_stats(argc, argv);
-//	ArgParse argparse(argc, argv);
-	test(dhcp_stats);
-//	dhcp_stats.sniffer();
+	printw("IP-Prefix Max-hosts Allocated addresses Utilization\n");
+	if (!dhcp_stats.filename.empty()) {
+		test(dhcp_stats);
+		getch();
+	} else {
+		dhcp_stats.sniffer(dhcp_stats.interface);
+	}
+	endwin();
+//	dhcp_stats.sniffer(dhcp_stats.interface);
 //	dhcp_stats.print_stats();
 
 	closelog();
