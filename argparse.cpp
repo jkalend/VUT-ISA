@@ -24,16 +24,20 @@ ArgParse::ArgParse(int argc, char **argv) {
 		std::cerr << "ERROR: no interface or filename specified" << std::endl;
 		exit(EXIT_FAILURE);
 	}
+	if (!interface.empty() && !filename.empty()) {
+		std::cerr << "ERROR: no interface or filename specified" << std::endl;
+		exit(EXIT_FAILURE);
+	}
 }
 
-std::string ArgParse::get_interface() {
+std::string ArgParse::get_interface() const {
 	return interface;
 }
 
-std::string ArgParse::get_filename() {
+std::string ArgParse::get_filename() const {
 	return filename;
 }
 
-std::vector<std::string> ArgParse::get_ips() {
+std::vector<std::string> ArgParse::get_ips() const {
 	return ips;
 }

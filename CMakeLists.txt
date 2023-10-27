@@ -10,6 +10,8 @@ project(VUT-ISA)
 
 set(CMAKE_CXX_STANDARD 20)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -pedantic -Wall -Wextra")
+
 add_executable(dhcp-stats
         dhcp-stats.cpp
         dhcp-stats.h

@@ -18,15 +18,15 @@ public:
 
 	/// Get the interface
 	/// \return The interface
-	std::string get_interface();
+	std::string get_interface() const;
 
 	/// Get the filename
 	/// \return The filename
-	std::string get_filename();
+	std::string get_filename() const;
 
 	/// Get the IP addresses
 	/// \return The IP addresses
-	std::vector<std::string> get_ips();
+	std::vector<std::string> get_ips() const;
 };
 
 #endif //VUT_ISA_ARGPARSE_H
