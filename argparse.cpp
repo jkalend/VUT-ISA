@@ -8,7 +8,7 @@ ArgParse::ArgParse(int argc, char **argv) {
 		else if (std::regex_match(argv[i], std::regex("^-r$"))) {
 			filename = argv[++i];
 		}
-		else if (std::regex_match(argv[i], std::regex("^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\\/([1-9]|[12][0-9]|3[0-2])$"))) {
+		else if (std::regex_match(argv[i], std::regex("^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\\/([0-9]|[12][0-9]|3[0-2])$"))) {
 			ips.emplace_back(argv[i]);
 		}
 		else {

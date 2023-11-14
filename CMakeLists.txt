@@ -17,6 +17,10 @@ add_executable(dhcp-stats
         dhcp-stats.h
         argparse.cpp
         argparse.h
-        main.cpp)
+        main.cpp
+        subnet.cpp
+        subnet.h)
+
+add_executable(test pokus.c)
 
 target_link_libraries(dhcp-stats pcap ncurses)

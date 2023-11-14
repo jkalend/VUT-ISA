@@ -1,62 +1,73 @@
 #include "dhcp-stats.h"
+#include <iomanip>
 
 void print_error(const std::string& error) {
 	std::cerr << error << std::endl;
+	closelog();
 	exit(EXIT_FAILURE);
 }
 
-int DHCPStats::calculate_subnet_capacity(const std::string& subnet) {
-	int capacity = 0;
-	std::string subnet_mask = subnet.substr(subnet.find('/') + 1);
-	if (int mask = std::stoi(subnet_mask); mask == 32) {
-		capacity = 1;
-	}
-	else {
-		capacity = static_cast<int>(pow(2, 32 - mask));
-	}
-	return capacity - 2;
-}
-
 DHCPStats::DHCPStats(int argc, char **argv) {
-	ArgParse argparse(argc, argv);
+	const ArgParse argparse(argc, argv);
 	interface = argparse.get_interface();
 	filename = argparse.get_filename();
 	for (auto const &ip : argparse.get_ips()) {
-		std::string netip = ip.substr(0, ip.find('/'));
-		uint32_t subnet_mask = std::stoi(ip.substr(ip.find('/') + 1));
-		std::map<std::string, int> ip_map;
-		ip_map["ip"] = inet_addr(netip.c_str());
-		ip_map["capacity"] = calculate_subnet_capacity(ip);
-		ip_map["subnet_mask"] = ntohl(~0 << (32 - subnet_mask));
-		ip_map["prefix"] = subnet_mask;
-		ip_map["used"] = 0;
-		ip_map["changed"] = 1;
-		ip_map["warned"] = 0;
-		ips.emplace_back(ip_map);
+		ips.emplace_back(Subnet(ip));
 	}
 	lines = static_cast<int>(ips.size());
+	std::ranges::sort(ips.begin(), ips.end(), [](const Subnet &a, const Subnet &b) {
+		return a.capacity > b.capacity;
+	});
 }
 
 DHCPStats::~DHCPStats() {
 	if (handle != nullptr) pcap_close(handle);
+
+	printf("IP-Prefix Max-hosts Allocated addresses Utilization\n");
+	for (auto &subnet : ips) {
+		char *ipaddr = inet_ntoa(static_cast<in_addr>(subnet.ip));
+		printf("%s/%u %u %u %0.2f%%\n",
+			   ipaddr,
+			   subnet.prefix,
+			   subnet.capacity,
+			   subnet.get_subnet_used_count(),
+			   subnet.calculate_subnet_fullness()
+			   );
+		subnet.changed = false;
+	}
+	for (auto &ip : ips) {
+		if (ip.warned == true) {
+			std::cout << "prefix " << inet_ntoa((in_addr)ip.ip) << "/" << ip.prefix
+				<< " exceeded 50% of allocations" << std::endl;
+		}
+	}
 }
 
 void DHCPStats::update_stats(uint32_t ip) {
 	for (auto &subnet : ips) {
-		if ((subnet.find("ip")->second & subnet.find("subnet_mask")->second) == (ip & subnet.find("subnet_mask")->second)) {
-			subnet.find("used")->second++;
-			subnet.find("changed")->second = 1;
-			if ((subnet.find("used")->second * 100) / subnet.find("capacity")->second > 50 && subnet.find("warned")->second == 0) {
+		if ((subnet.ip & subnet.subnet_mask) == (ip & subnet.subnet_mask)) {
+
+			if (ip == subnet.first_ip || ip == subnet.last_ip) {
+				return;
+			}
+			if (subnet.address_map.find(ip) != subnet.address_map.end()) {
+				return;
+			}
+			subnet.address_map.emplace(ip, true);
+
+			subnet.changed = true;
+			if ((subnet.calculate_subnet_fullness() > 50) && (subnet.warned == false)) {
 				syslog(LOG_WARNING,
 					   "prefix %s/%d exceeded 50%% of allocations",
-					   inet_ntoa((in_addr)subnet.find("ip")->second),
-					   subnet.find("prefix")->second
+					   inet_ntoa(static_cast<in_addr>(subnet.ip)),
+					   subnet.prefix
 					   );
+
 				move(lines+2, 0);
 				refresh();
-				std::cout << "prefix " << inet_ntoa((in_addr)subnet.find("ip")->second) << "/" << subnet.find("prefix")->second << " exceeded 50% of allocations" << std::endl;
+				std::cout << "prefix " << inet_ntoa(static_cast<in_addr>(subnet.ip)) << "/" << subnet.prefix << " exceeded 50% of allocations" << std::endl;
 				lines++;
-				subnet.find("warned")->second = 1;
+				subnet.warned = true;
 				refresh();
 			}
 		}
@@ -65,53 +76,78 @@ void DHCPStats::update_stats(uint32_t ip) {
 
 void DHCPStats::print_stats() {
 	int line = 1;
-	for (auto &ip : ips) {
-		if (ip.find("changed")->second == 0) {
+	for (auto &subnet : ips) {
+		if (subnet.changed == false) {
 			line++;
 			continue;
 		}
-		move(line, 0);
-		clrtoeol();
-		char *ipaddr = inet_ntoa(*(in_addr*)&ip.find("ip")->second);
-		printw("%s/%d %d %d %d%%\n",
-			   ipaddr, ip.find("prefix")->second,
-			   ip.find("capacity")->second,
-			   ip.find("used")->second,
-			   (ip.find("used")->second * 100) / ip.find("capacity")->second
-			   );
-		ip.find("changed")->second = 0;
-		line++;
-		refresh();
+
+		if (filename_is_set()) {
+			std::cout << inet_ntoa(static_cast<in_addr>(subnet.ip)) << "/" << subnet.prefix
+				<< " " << subnet.capacity << " " << subnet.get_subnet_used_count()
+				<< " " << std::setprecision(2) << subnet.calculate_subnet_fullness() << "%" << std::endl;
+			subnet.changed = false;
+			line++;
+		} else {
+			move(line, 0);
+			clrtoeol();
+			printw("%s/%u %u %u %0.2f%%\n",
+				   inet_ntoa(static_cast<in_addr>(subnet.ip)),
+				   subnet.prefix,
+				   subnet.capacity,
+				   subnet.get_subnet_used_count(),
+				   subnet.calculate_subnet_fullness()
+				   );
+			subnet.changed = false;
+			line++;
+			refresh();
+		}
 	}
 }
 
 uint32_t DHCPStats::parse_packet(const u_char *packet) {
-	struct ip *ip_header = (struct ip *) (packet+ETHERNET_HEADER_LEN + VLAN_HEADER_LEN(packet));
+	auto *ip_header = (struct ip *) (packet+ETHERNET_HEADER_LEN + VLAN_HEADER_LEN(packet));
 	if (ntohs(ip_header->ip_len) < DHCP_HEADER_LEN) {
 		return 0;
 	}
-	struct DHCPHeader *dhcp_header = (struct DHCPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet)+UDP_HEADER_LEN);
+	auto *dhcp_header = (struct DHCPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet)+UDP_HEADER_LEN);
 
 	if (dhcp_header->op != 2) {
 		return 0;
 	}
 	auto *payload = DHCP_OPTION_OFFSET(packet);
-	if(parse_options(payload) == 5) {
-//		dhcp_header->yiaddr = inet_addr("192.168.1.12");
+	int overload = 0;
+	int type = parse_options(payload, &overload);
+	if (overload != 0) {
+		if (overload == 1) {
+			type = parse_options(dhcp_header->file, &overload);
+		} else if (overload == 2) {
+			type = parse_options(dhcp_header->sname, &overload);
+		} else if (overload == 3) {
+			type = parse_options(dhcp_header->file, &overload);
+			if (type == 0) {
+				type = parse_options(dhcp_header->sname, &overload);
+			}
+		}
+	}
+	if(type == 5) {
 		return dhcp_header->yiaddr;
 	}
 	return 0;
 }
 
-int DHCPStats::parse_options(const u_char *packet) {
+int DHCPStats::parse_options(const u_char *packet, int *overload) {
 	int return_code = 0;
 	int i = 0;
 	while (packet[i] != 0xff) {
 		if (packet[i] == 0x35) {
-			return_code = (int)packet[i + 2];
-			i += (int)packet[++i];
+			return_code = static_cast<int>(packet[i + 2]);
+			i += static_cast<int>(packet[++i]);
+		} else if (packet[i] == 0x34) {
+			*overload = static_cast<int>(packet[i + 2]);
+			i += static_cast<int>(packet[++i]);
 		} else if (packet[i] != 0x00) {
-			i += (int)packet[++i];
+			i += static_cast<int>(packet[++i]);
 		}
 		i++;
 	}
@@ -123,13 +159,12 @@ int DHCPStats::sniffer() {
 	char filter_exp[] = "port 68 or port 67";
 	bpf_u_int32 mask, net;
 	struct pcap_pkthdr header;
-	const u_char *packet;
 
 	pcap_if_t *alldevsp;
 	pcap_findalldevs(&alldevsp, errbuff);
 	bool found = false;
-	for (auto *d = alldevsp; d != nullptr; d = d->next) {
-		if (strcmp(d->name, interface.c_str()) == 0) {
+	for (const auto *device = alldevsp; device != nullptr; device = device->next) {
+		if (strcmp(device->name, interface.c_str()) == 0) {
 			found = true;
 			break;
 		}
@@ -144,6 +179,9 @@ int DHCPStats::sniffer() {
 		std::cerr << "Couldn't get netmask for device " << interface << ": " << std::string(errbuff) << std::endl;
 		net = 0; mask = 0;
 	}
+	if (geteuid() != 0) {
+		print_error("You must be root to sniff the packets");
+	}
 	handle = pcap_open_live(interface.c_str(), BUFSIZ, 1, 1000, errbuff);
 	if (handle == nullptr) {
 		print_error("Couldn't open device " + interface + ": " + std::string(errbuff));
@@ -154,11 +192,16 @@ int DHCPStats::sniffer() {
 	if (pcap_setfilter(handle, &fp) == -1) {
 		print_error("Couldn't install filter " + std::string(filter_exp) + ": " + std::string(pcap_geterr(handle)));
 	}
+	pcap_freecode(&fp);
+	pcap_freealldevs(alldevsp);
+
+	initscr();
+	printw("IP-Prefix Max-hosts Allocated addresses Utilization\n");
+	print_stats();
 
 	while (true) {
-		packet = pcap_next(handle, &header);
-		uint32_t result = parse_packet(packet);
-		if (result == 0) {
+		const u_char *packet = pcap_next(handle, &header);
+		if (const uint32_t result = parse_packet(packet); result == 0) {
 			print_stats();
 		} else {
 			update_stats(result);
@@ -167,28 +210,29 @@ int DHCPStats::sniffer() {
 	}
 }
 
-
 int DHCPStats::read_file() {
     handle = pcap_open_offline(filename.c_str(), errbuff);
-	if (handle == NULL) {
+	if (handle == nullptr) {
 		print_error("Couldn't open file " + filename + ": " + std::string(errbuff));
 	}
 
     struct pcap_pkthdr *header;
     const u_char *data;
 
-    while (int returnValue = pcap_next_ex(handle, &header, &data) >= 0) {
+	int returnValue = 0;
+    while ((returnValue = pcap_next_ex(handle, &header, &data)) >= 0) {
 		if (parse_packet(data) == 0) {
-			print_stats();
 			continue;
 		}
 		update_stats(parse_packet(data));
-		print_stats();
     }
-	while (true);
+	if (returnValue == -1) {
+		print_error("Error reading the packets: " + std::string(pcap_geterr(handle)));
+	}
+	return 0;
 }
 
 [[nodiscard]]
 bool DHCPStats::filename_is_set() const {
-	return filename.empty();
+	return !filename.empty();
 }
