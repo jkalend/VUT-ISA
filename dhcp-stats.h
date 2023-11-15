@@ -70,7 +70,7 @@ private:
 	/// Parse DHCP options
 	/// \param packet The packet
 	/// \return The DHCP Message Type
-	int parse_options(const u_char *packet, int *overload);
+	int parse_options(const u_char *packet, int *overload, int length);
 
 	/// Print or refresh the stats on the screen
 	void print_stats();

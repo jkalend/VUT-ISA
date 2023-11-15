@@ -13,8 +13,8 @@ Subnet::Subnet(const std::string &ip) {
 
 uint32_t Subnet::calculate_subnet_capacity(const std::string& subnet) {
 	uint32_t capacity = 0;
-	std::string subnet_mask = subnet.substr(subnet.find('/') + 1);
-	if (int mask = std::stoi(subnet_mask); mask == 32) {
+	const std::string subnet_mask = subnet.substr(subnet.find('/') + 1);
+	if (const uint8_t mask = std::stoi(subnet_mask); mask == 32) {
 		capacity = 1;
 	}
 	else {
