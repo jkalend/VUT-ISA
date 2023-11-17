@@ -11,6 +11,7 @@
 #include <netinet/ether.h>
 #include <netinet/ip.h>
 #include <memory>
+#include <chrono>
 
 /// \brief Length of the ethernet header
 #define ETHERNET_HEADER_LEN 14
@@ -25,13 +26,13 @@
 #define UDP_HEADER_LEN 8
 
 /// \brief Length of the DHCP header (without options)
-#define DHCP_HEADER_LEN 236
+#define DHCP_HEADER_LEN sizeof(struct DHCPHeader)
 
 /// \brief DHCP magic cookie
 #define DHCP_MAGIC_COOKIE 0x63825363
 
 /// \brief Offset of the DHCP options
-#define DHCP_OPTION_OFFSET(data) (data + ETHERNET_HEADER_LEN+IP_HEADER_LEN(data)+UDP_HEADER_LEN+DHCP_HEADER_LEN+sizeof(DHCP_MAGIC_COOKIE))
+#define DHCP_OPTION_OFFSET(data) (data + ETHERNET_HEADER_LEN+IP_HEADER_LEN(data)+UDP_HEADER_LEN+DHCP_HEADER_LEN)
 
 /// \brief DHCP header structure (without options)
 struct DHCPHeader {
@@ -54,7 +55,6 @@ struct DHCPHeader {
 };
 
 class DHCPStats {
-private:
 	/// \brief used to print the stats on the screen
 	int lines = 1;
 
@@ -62,6 +62,8 @@ private:
 	std::vector<Subnet> ips;
 	std::string interface;
 	std::string filename;
+
+	std::vector<uint32_t> added_ips;
 
 	/// \brief pcap handle
 	pcap_t *handle = nullptr;
@@ -76,12 +78,12 @@ private:
 	void print_stats();
 
 	/// Update the stats
-	/// \param ip The IP address
-	void update_stats(uint32_t ip);
+	/// \param ips The IP addresses
+	void update_stats();
 
 	/// Parse the packet
 	/// \param packet The packet
-	/// \return The IP address or 0 if the packet does not contain DHCP message
+	/// \return The IP addresses or 0 if the packet does not contain DHCP message
 	uint32_t parse_packet(const u_char *packet);
 
 public:

@@ -24,3 +24,6 @@ run: dhcp-stats
 
 lo: dhcp-stats
 	sudo ./dhcp-stats -i lo 192.168.1.0/24 172.16.32.0/24 192.168.0.0/22 192.168.1.0/26 192.168.1.0/27 192.168.1.0/27
+
+example: dhcp-stats
+	./dhcp-stats -r dhcp.pcap 192.168.1.0/24 172.16.32.0/24 192.168.0.0/22

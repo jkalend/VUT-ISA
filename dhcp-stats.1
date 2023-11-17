@@ -1,0 +1,41 @@
+.TH DHCP-STATS 1
+.SH NAME
+dhcp-stats \- monitor DHCP server activity and generate statistics for subnet usage
+.SH SYNOPSIS
+.B dhcp-stats
+[\fB\-i\fR \fIINTERFACE\fR]
+[\fB\-r\fR \fIFILE\fR]
+.IR subnet_address ...
+.SH DESCRIPTION
+.B dhcp-stats
+Monitors network traffic on ports 67 and 68 and captures all DHCP communication, the intercepted packets are processed and checked for assigned addresses. The monitor takes subnet address and netmask as arguments.
+Duplicated addresses are reported and ignored. Invalid addresses are reported and the program terminates. At least one subnet and an interface or file must be specified.
+.PP
+The program can read from a file instead of the network interface. The file must be in pcap format.
+If launched on an interface, the program will open its own window and report the current status of the monitored subnets.
+The subnets are reported in format of IP-Prefix, Max-hosts, Allocated addresses, Utilization, where IP-Prefix is the subnet address and netmask, Max-hosts is the number of hosts in the subnet, Allocated addresses is the number of addresses assigned to clients, Utilization is the percentage of assigned addresses
+.PP
+On exit, the program prints a list of all assigned addresses and the number of times each address was assigned, to close a running monitor, press CTRL+C.
+.SH OPTIONS
+.TP
+.BR \-r =\fIFILE\fR
+Set the file to read from, cannot be used together with \fB\-i\fR.
+.TP
+.BR \-i =\fIINTERFACE\fR
+Set the interface to listen on, cannot be used together with \fB\-r\fR.
+.TP
+.BR subnet_address ...
+Subnet addresses to be monitored.
+.SH EXAMPLES
+.B dhcp-stats
+.BR \-i\ eth0
+.BR 192.168.1.0/24\ 172.16.32.0/24\ 192.168.0.0/22
+.PP
+.nf
+.RS
+IP-Prefix     \ \fBMax-hosts\fP       \ \fBAllocated addresses\fP    \ \fBUtilization\fP
+192.168.0.0/22  \ \fB1022\fP             \ \fB1\fP                         \ \fB0.10%\fP
+192.168.1.0/24  \ \fB254\fP              \ \fB0\fP                         \ \fB0.00%\fP
+172.16.32.0/24  \ \fB254\fP              \ \fB0\fP                         \ \fB0.00%\fP
+.RE
+.fi

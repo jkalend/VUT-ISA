@@ -29,7 +29,7 @@ public:
 
 	/// \brief Calculate subnet used count
 	/// \return subnet used count
-	[[nodiscard]] int get_subnet_used_count() const;
+	[[nodiscard]] uint32_t get_subnet_used_count() const;
 private:
 	/// Calculate maximum subnet capacity
 	/// \param subnet The subnet
