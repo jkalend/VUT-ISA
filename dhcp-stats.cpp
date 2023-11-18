@@ -13,18 +13,18 @@ DHCPStats::DHCPStats(int argc, char **argv) {
 	interface = argparse.get_interface();
 	filename = argparse.get_filename();
 	for (auto const &ip : argparse.get_ips()) {
-		for (auto const &subnet : ips) {
+		for (auto const &subnet : subnets) {
 			if ((std::string(inet_ntoa((in_addr)subnet.ip)) + "/" + std::to_string(subnet.prefix)) == ip) {
 				std::cerr << "WARNING: IP address " << ip << " is duplicated" << std::endl;
 				goto skip;
 			}
 		}
-		ips.emplace_back(ip);
+		subnets.emplace_back(ip);
 		skip:{}
 	}
 
-	lines = static_cast<int>(ips.size());
-	std::ranges::sort(ips.begin(), ips.end(), [](const Subnet &a, const Subnet &b) {
+	lines = static_cast<int>(subnets.size());
+	std::ranges::sort(subnets.begin(), subnets.end(), [](const Subnet &a, const Subnet &b) {
 		return a.capacity > b.capacity;
 	});
 }
@@ -33,7 +33,7 @@ DHCPStats::~DHCPStats() {
 	if (handle != nullptr) pcap_close(handle);
 
 	printf("IP-Prefix\tMax-hosts\tAllocated addresses\tUtilization\n");
-	for (auto &subnet : ips) {
+	for (auto &subnet : subnets) {
 		char *ipaddr = inet_ntoa(static_cast<in_addr>(subnet.ip));
 		printf("%s/%u\t%u\t\t%u\t\t\t%0.2f%%\n",
 			   ipaddr,
@@ -44,7 +44,7 @@ DHCPStats::~DHCPStats() {
 			   );
 		subnet.changed = false;
 	}
-	for (const auto &ip : ips) {
+	for (const auto &ip : subnets) {
 		if (ip.warned == true) {
 			std::cout << "prefix " << inet_ntoa((in_addr)ip.ip) << "/" << ip.prefix
 				<< " exceeded 50% of allocations" << std::endl;
@@ -53,7 +53,7 @@ DHCPStats::~DHCPStats() {
 }
 
 void DHCPStats::update_stats() {
-	for (auto &subnet : ips) {
+	for (auto &subnet : subnets) {
 		for (auto &ip : added_ips) {
 			if ((subnet.ip & subnet.subnet_mask) == (ip & subnet.subnet_mask)) {
 
@@ -76,7 +76,8 @@ void DHCPStats::update_stats() {
 					if (!filename_is_set()) {
 						move(lines+2, 0);
 						refresh();
-						std::cout << "prefix " << inet_ntoa(static_cast<in_addr>(subnet.ip)) << "/" << subnet.prefix << " exceeded 50% of allocations" << std::endl;
+						std::cout << "prefix " << inet_ntoa(static_cast<in_addr>(subnet.ip)) << "/" << subnet.prefix
+							<< " exceeded 50% of allocations" << std::endl;
 						lines++;
 						refresh();
 						std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -90,7 +91,7 @@ void DHCPStats::update_stats() {
 
 void DHCPStats::print_stats() {
 	int line = 1;
-	for (auto &subnet : ips) {
+	for (auto &subnet : subnets) {
 		if (subnet.changed == false) {
 			line++;
 			continue;
@@ -115,7 +116,7 @@ void DHCPStats::print_stats() {
 			subnet.changed = false;
 			line++;
 			refresh();
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			std::this_thread::sleep_for(std::chrono::milliseconds(20));
 		}
 	}
 }
@@ -123,23 +124,20 @@ void DHCPStats::print_stats() {
 uint32_t DHCPStats::parse_packet(const u_char *packet) {
 	added_ips.clear();
 	auto *ip_header = (struct ip *) (packet+ETHERNET_HEADER_LEN + VLAN_HEADER_LEN(packet));
-	if (ntohs(ip_header->ip_len) < DHCP_HEADER_LEN) {
+	if (ntohs(ip_header->ip_len) < (DHCP_HEADER_LEN + UDP_HEADER_LEN + IP_HEADER_LEN(packet))) {
 		return 0;
 	}
 	auto *dhcp_header = (struct DHCPHeader *) (packet+ETHERNET_HEADER_LEN+IP_HEADER_LEN(packet)+UDP_HEADER_LEN);
 
-	if (dhcp_header->op != 2) {
-		return 0;
-	}
-	auto *payload = DHCP_OPTION_OFFSET(packet);
+	auto *options = DHCP_OPTION_OFFSET(packet);
 	int overload = 0;
-	const int option_length = static_cast<int>(ntohs(ip_header->ip_len)) - ( payload - packet ) + ETHERNET_HEADER_LEN;
+	const int option_length = static_cast<int>(ntohs(ip_header->ip_len)) - ( options - packet ) + ETHERNET_HEADER_LEN;
 
 	if (ntohl(dhcp_header->magic_cookie) != DHCP_MAGIC_COOKIE) {
 		return 0;
 	}
 
-	int type = parse_options(payload, &overload, option_length);
+	int type = parse_options(options, &overload, option_length);
 	if (overload != 0) {
 		if (overload == 1) {
 			type = parse_options(dhcp_header->file, &overload, sizeof(dhcp_header->file));
@@ -152,11 +150,11 @@ uint32_t DHCPStats::parse_packet(const u_char *packet) {
 			}
 		}
 	}
-	if(type == 5) {
+	if(type == DHCPACK) {
 		added_ips.push_back(dhcp_header->yiaddr);
 		return dhcp_header->yiaddr;
 	}
-	if (type == 3) {
+	if (type == DHCPOFFER || type == DHCPREQUEST) {
 		return type;
 	}
 	return 0;
@@ -165,23 +163,24 @@ uint32_t DHCPStats::parse_packet(const u_char *packet) {
 int DHCPStats::parse_options(const u_char *packet, int *overload, int length) {
 	int return_code = 0;
 	int i = 0;
-	while (packet[i] != 0xff && i < length) {
-		if (packet[i] == 0x35) {
+	while (packet[i] != DHCP_OPTION_END && i < length) {
+		if (packet[i] == DHCP_OPTION_MESSAGE_TYPE) {
 			return_code = static_cast<int>(packet[i + 2]);
 			i += static_cast<int>(packet[++i]);
-		} else if (packet[i] == 0x34) {
+		} else if (packet[i] == DHCP_OPTION_OVERLOAD) {
 			*overload = static_cast<int>(packet[i + 2]);
 			i += static_cast<int>(packet[++i]);
-		} else if (packet[i] == 0x06 || packet[i] == 0x03 || packet[i] == 0x36) {
+		} else if ((packet[i] >= DHCP_OPTION_ROUTER && packet[i] <= DHCP_OPTION_RESOURCE_LOCATION) ||
+			packet[i] == DHCP_OPTION_SERVER_IDENTIFIER) {
 			u_char length = packet[i + 1];
 			i += 2;
-			for (uint32_t j = i; j < i + length; j += 4) {
+			for (uint32_t j = i; j < i + static_cast<uint32_t>(length); j += 4) {
 				uint32_t ip = *((uint32_t*) (packet + j));
 				added_ips.push_back(ip);
 			}
 			i += length;
 			continue;
-		} else if (packet[i] != 0x00) {
+		} else if (packet[i] != DHCP_OPTION_PAD) {
 			i += static_cast<int>(packet[++i]);
 		}
 		i++;
@@ -259,7 +258,6 @@ int DHCPStats::read_file() {
 		if (parse_packet(data) == 0) {
 			continue;
 		}
-    	//parse_packet(data);
 		update_stats();
     }
 	if (returnValue == -1) {

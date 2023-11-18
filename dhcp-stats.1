@@ -3,12 +3,13 @@
 dhcp-stats \- monitor DHCP server activity and generate statistics for subnet usage
 .SH SYNOPSIS
 .B dhcp-stats
+[\fB\-h\fR]
 [\fB\-i\fR \fIINTERFACE\fR]
 [\fB\-r\fR \fIFILE\fR]
 .IR subnet_address ...
 .SH DESCRIPTION
 .B dhcp-stats
-Monitors network traffic on ports 67 and 68 and captures all DHCP communication, the intercepted packets are processed and checked for assigned addresses. The monitor takes subnet address and netmask as arguments.
+Monitors IPv4 network traffic on ports 67 and 68 and captures all DHCP communication, the intercepted packets are processed and checked for assigned addresses. The monitor takes subnet address and netmask as arguments.
 Duplicated addresses are reported and ignored. Invalid addresses are reported and the program terminates. At least one subnet and an interface or file must be specified.
 .PP
 The program can read from a file instead of the network interface. The file must be in pcap format.
@@ -17,6 +18,9 @@ The subnets are reported in format of IP-Prefix, Max-hosts, Allocated addresses,
 .PP
 On exit, the program prints a list of all assigned addresses and the number of times each address was assigned, to close a running monitor, press CTRL+C.
 .SH OPTIONS
+.TP
+.BR \-h
+Prints out help, ignores all other arguments.
 .TP
 .BR \-r =\fIFILE\fR
 Set the file to read from, cannot be used together with \fB\-i\fR.

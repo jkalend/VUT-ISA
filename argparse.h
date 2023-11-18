@@ -11,6 +11,8 @@ class ArgParse {
 	std::string interface;
 	std::string filename;
 	std::vector<std::string> ips;
+
+	static void help();
 public:
 	ArgParse(int argc, char **argv);
 	~ArgParse() = default;

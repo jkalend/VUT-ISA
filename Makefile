@@ -1,5 +1,5 @@
 CCXFLAGS:= -O0 -std=c++20 -Wall -Wextra -pedantic -Werror -g
-CCX:= g++-10
+CCX:= g++
 CC:= gcc
 CCFLAGS:= -std=c11
 LIBS:= -lcurses -lpcap
@@ -17,7 +17,7 @@ clean:
 	$(CCX) $(CCXFLAGS) -c $<
 
 pack:
-	zip xkalen07.zip *.cpp *.h Makefile
+	zip xkalen07.zip *.cpp *.h Makefile README.md manual.pdf dhcp-stats.1
 
 run: dhcp-stats
 	./dhcp-stats $(ARGS) 192.168.1.0/24 172.16.32.0/24 192.168.0.0/22 192.168.1.0/26 192.168.1.0/27

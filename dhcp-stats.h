@@ -34,6 +34,28 @@
 /// \brief Offset of the DHCP options
 #define DHCP_OPTION_OFFSET(data) (data + ETHERNET_HEADER_LEN+IP_HEADER_LEN(data)+UDP_HEADER_LEN+DHCP_HEADER_LEN)
 
+/// \brief DHCP options
+#define DHCP_OPTION_PAD 0x00
+#define DHCP_OPTION_END 0xff
+#define DHCP_OPTION_ROUTER 0x03
+#define DHCP_OPTION_RESOURCE_LOCATION 0x0b
+#define DHCP_OPTION_OVERLOAD 0x34
+#define DHCP_OPTION_MESSAGE_TYPE 0x35
+#define DHCP_OPTION_SERVER_IDENTIFIER 0x36
+
+/// \brief DHCP message types
+enum DHCPMessageType {
+	DHCPDISCOVER = 1,
+	DHCPOFFER = 2,
+	DHCPREQUEST = 3,
+	DHCPDECLINE = 4,
+	DHCPACK = 5,
+	DHCPNAK = 6,
+	DHCPRELEASE = 7,
+	DHCPINFORM = 8
+};
+
+
 /// \brief DHCP header structure (without options)
 struct DHCPHeader {
 	uint8_t op;
@@ -59,7 +81,7 @@ class DHCPStats {
 	int lines = 1;
 
 	/// \brief vector of subnets
-	std::vector<Subnet> ips;
+	std::vector<Subnet> subnets;
 	std::string interface;
 	std::string filename;
 
@@ -97,8 +119,7 @@ public:
 
 	/// Check if the filename is set
 	/// \return True if the filename is set, false otherwise
-	[[nodiscard]]
-	bool filename_is_set() const;
+	[[nodiscard]] bool filename_is_set() const;
 
 	/// Sniff the packets
 	/// \return 1 on failure
